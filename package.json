@@ -5,12 +5,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "npx nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@enhance/arc-plugin-enhance": "^2.0.2"
+    "@enhance/arc-plugin-enhance": "^2.1.0",
+    "busboy": "^1.6.0"
   }
 }

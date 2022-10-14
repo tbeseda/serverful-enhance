@@ -1,36 +1,37 @@
 import http from "node:http";
 import path from "node:path";
-import url from "node:url";
+import fs from "node:fs";
 import { createRouter } from "@enhance/arc-plugin-enhance/src/http/any-catchall/index.mjs";
+import busboy from "busboy";
 import contextShim from "./lib/context-shim.js";
+import MIME_TYPES from "./lib/mime-types.js";
 
-const here = path.dirname(url.fileURLToPath(import.meta.url));
+const here = process.cwd();
 const router = createRouter(`${here}/app`);
 const server = http.createServer();
 
 server.on("request", async function (request, response) {
 	const { headers, method, url } = request;
 	const contentType = headers["content-type"];
-	console.log(`${method} ${contentType ? `[${contentType}]` : ""}: ${url}`);
+	let streaming = false;
 
-	// TODO: use body-parser?
 	let parsedBody = null;
+	let body = null;
 	if (
 		method === "POST" &&
 		contentType === "application/x-www-form-urlencoded"
 	) {
-		let rawBody = "";
-		request.on("data", (chunk) => {
-			rawBody += chunk.toString();
+		const bb = busboy({ headers });
+
+		parsedBody = {};
+		bb.on("field", (name, value) => {
+			parsedBody[name] = value;
 		});
-		request.on("end", () => {
-			const bodyAsParams = new URLSearchParams(rawBody);
-			const parsedBody = {};
-			for (const [key, value] of bodyAsParams) {
-				parsedBody[key] = value;
-			}
-			// console.log("parsedBody:", parsedBody);
+		bb.on("file", () => {
+			console.log("File upload currently unsupported");
 		});
+
+		request.pipe(bb);
 	}
 
 	let accept = headers["accept"] || headers["Accept"] || [];
@@ -39,6 +40,8 @@ server.on("request", async function (request, response) {
 	}
 
 	if (accept.includes("text/html")) {
+		console.log(`${method}: ${url}`);
+
 		const mappedRequest = {
 			body: parsedBody, // ! doesn't work as expected
 			headers: headers,
@@ -64,15 +67,36 @@ server.on("request", async function (request, response) {
 		}
 		response.writeHead(enhanceReply.statusCode);
 		response.write(enhanceReply.body);
-	} else if (url?.startsWith("/_static")) {
-		// serve static asset
+	} else if (url?.startsWith("/_public/")) {
+		const filePath = path.join(here, "public", url.replace("/_public/", ""));
+		const exists = await fs.promises.access(filePath, fs.constants.R_OK).then(
+			() => true,
+			() => false,
+		);
+
+		if (exists) {
+			const extension = path.extname(filePath).substring(1).toLowerCase();
+			const fileStream = fs.createReadStream(filePath);
+
+			response.writeHead(200, {
+				"Content-Type": MIME_TYPES[extension] || MIME_TYPES.default,
+			});
+
+			streaming = true;
+			fileStream.pipe(response);
+		} else {
+			response.writeHead(404);
+		}
 	} else {
 		response.writeHead(500);
 	}
 
-	response.end();
+	if (!streaming) {
+		response.end();
+	}
 });
 
-server.listen(8080, () => {
-	console.log("Serverful Enhance running.");
+const PORT = 8080;
+server.listen(PORT, () => {
+	console.log(`Serverful Enhance running: http://localhost:${PORT}`);
 });
